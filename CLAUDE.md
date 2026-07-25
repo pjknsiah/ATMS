@@ -22,7 +22,7 @@ This is a capstone project. Code must be clean, well-documented, and testable.
 ## Project structure
 
 ```
-atms/
+ATMS/
 ├── CLAUDE.md                  ← you are here
 ├── README.md
 ├── requirements.txt
