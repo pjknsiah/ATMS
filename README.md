@@ -21,7 +21,7 @@ python -c "from ultralytics import YOLO; YOLO('yolo11n.pt')"
 #   lane_0.mp4, lane_1.mp4, lane_2.mp4, lane_3.mp4
 
 # 6. Run
-python main.py
+python main.py 
 ```
 
 ## Run tests
