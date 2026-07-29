@@ -37,7 +37,7 @@ lane_3.mp4 ──┘      │  spawns 4x
 ## Thread model
 
 ```
-Main thread
+Main thread 
   └── Manager
         ├── Lane-0 thread  (read → detect → track → post)
         ├── Lane-1 thread
