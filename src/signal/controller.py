@@ -13,10 +13,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import time
 
+from src.signal.deadlock import DeadlockGuard
+
 
 @dataclass
 class LaneState:
     """Shared state for one lane, updated each processing window."""
+
     lane_id: int
     cumulative_count: int = 0
     consecutive_greens: int = 0
@@ -29,12 +32,12 @@ class SignalController:
     Determines which lane receives a green signal each round.
 
     Args:
-        deadlock_threshold: Max consecutive greens before deadlock override.
+        deadlock_threshold: Max consecutive greens before deadlock override kicks in.
     """
 
     def __init__(self, deadlock_threshold: int = 2) -> None:
         self.deadlock_threshold = deadlock_threshold
-        # TODO Phase 3: initialise DeadlockGuard here
+        self._guard: DeadlockGuard | None = None  # lazy-init on first decide()
 
     def decide(self, lanes: list[LaneState]) -> int:
         """
@@ -46,10 +49,30 @@ class SignalController:
         Returns:
             lane_id of the lane granted the green signal.
         """
-        # TODO Phase 3: implement decision logic per CLAUDE.md spec
-        # 1. find lane with max cumulative_count
-        # 2. check deadlock guard — get override lane_id if threshold hit
-        # 3. grant green to winner, red to all others
-        # 4. reset winner.cumulative_count = 0
-        # 5. update consecutive_greens
-        raise NotImplementedError("Implement in Phase 3 — see CLAUDE.md")
+        if self._guard is None:
+            self._guard = DeadlockGuard(
+                threshold=self.deadlock_threshold,
+                lane_count=len(lanes),
+            )
+
+        # 1. Natural winner — lane with the highest cumulative vehicle count.
+        natural_winner = max(lanes, key=lambda l: l.cumulative_count)
+
+        # 2. Check deadlock guard; it returns an override lane_id or None.
+        consecutive_greens = {l.lane_id: l.consecutive_greens for l in lanes}
+        override_id = self._guard.check_override(natural_winner.lane_id, consecutive_greens)
+        winner_id = override_id if override_id is not None else natural_winner.lane_id
+
+        # 3–5. Apply the decision to each lane.
+        for lane in lanes:
+            if lane.lane_id == winner_id:
+                lane.current_signal = "green"
+                lane.cumulative_count = 0
+                lane.consecutive_greens += 1
+                lane.last_updated = time.time()
+            else:
+                lane.current_signal = "red"
+                lane.consecutive_greens = 0
+
+        self._guard.record_green(winner_id)
+        return winner_id

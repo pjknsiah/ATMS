@@ -18,7 +18,8 @@ class DeadlockGuard:
 
     Args:
         threshold: Number of consecutive greens before override triggers.
-        lane_count: Total number of lanes.
+        lane_count: Total number of lanes (informational; logic derives IDs
+                    from the consecutive_greens dict passed to check_override).
     """
 
     def __init__(self, threshold: int = 2, lane_count: int = 4) -> None:
@@ -41,19 +42,28 @@ class DeadlockGuard:
         Returns:
             Override lane_id if deadlock detected, else None.
         """
-        # TODO Phase 3: implement override logic
-        # if consecutive_greens[natural_winner_id] >= self.threshold:
-        #     return next lane_id not in self._round_greens
-        # else:
-        #     return None
-        raise NotImplementedError("Implement in Phase 3 — see CLAUDE.md")
+        if consecutive_greens.get(natural_winner_id, 0) < self.threshold:
+            return None
+
+        lane_ids = sorted(consecutive_greens)
+
+        # Pick the first lane that hasn't had green this round.
+        for lane_id in lane_ids:
+            if lane_id not in self._round_greens and lane_id != natural_winner_id:
+                return lane_id
+
+        # Every other lane has already been served this round — start a fresh round.
+        self.reset_round()
+        for lane_id in lane_ids:
+            if lane_id != natural_winner_id:
+                return lane_id
+
+        return None  # edge case: only one lane exists
 
     def record_green(self, lane_id: int) -> None:
         """Record that lane_id received a green signal this round."""
         self._round_greens.add(lane_id)
 
     def reset_round(self) -> None:
-        """
-        Call at the start of each new full round (all lanes have had a turn).
-        """
+        """Clear the per-round green log at the start of a new full rotation."""
         self._round_greens.clear()
