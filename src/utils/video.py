@@ -14,6 +14,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from src.utils.logger import get_logger
+
+log = get_logger(__name__)
+
 
 def iter_subclip_frames(
     video_path: str | Path,
@@ -37,8 +41,36 @@ def iter_subclip_frames(
         FileNotFoundError: If video_path does not exist.
         RuntimeError: If the video cannot be opened.
     """
-    # TODO Phase 1: implement with cv2.VideoCapture
-    raise NotImplementedError("Implement in Phase 1 — see CLAUDE.md")
+    path = Path(video_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Video not found: {path}")
+
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        raise RuntimeError(f"Cannot open video: {path}")
+
+    try:
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        start_frame = int(start_sec * fps)
+        end_frame = int(end_sec * fps)
+
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+        frame_idx = 0
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            if (start_frame + frame_idx) >= end_frame:
+                break
+            if frame_idx % every_n_frames == 0:
+                yield frame
+            frame_idx += 1
+    except Exception:
+        log.exception("frame_read_error", video=str(path))
+        raise
+    finally:
+        cap.release()
 
 
 def get_video_duration(video_path: str | Path) -> float:
@@ -50,6 +82,24 @@ def get_video_duration(video_path: str | Path) -> float:
 
     Returns:
         Duration in seconds as float.
+
+    Raises:
+        FileNotFoundError: If video_path does not exist.
+        RuntimeError: If the video cannot be opened or has invalid FPS.
     """
-    # TODO Phase 1: use cv2.VideoCapture + CAP_PROP_FRAME_COUNT / CAP_PROP_FPS
-    raise NotImplementedError("Implement in Phase 1 — see CLAUDE.md")
+    path = Path(video_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Video not found: {path}")
+
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        raise RuntimeError(f"Cannot open video: {path}")
+
+    try:
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        if fps <= 0:
+            raise RuntimeError(f"Invalid FPS ({fps}) for video: {path}")
+        return frame_count / fps
+    finally:
+        cap.release()
