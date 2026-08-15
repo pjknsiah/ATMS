@@ -21,6 +21,7 @@ class Config:
     video_dir: str
     log_level: str
     vehicle_classes: tuple[str, ...]
+    every_n_frames: int = 5  # sample 1 in every N frames per window
 
 
 def load_config() -> Config:
@@ -40,4 +41,5 @@ def load_config() -> Config:
         video_dir=os.getenv("VIDEO_DIR", "data/samples"),
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         vehicle_classes=tuple(c.strip() for c in raw_classes.split(",")),
+        every_n_frames=int(os.getenv("EVERY_N_FRAMES", "5")),
     )

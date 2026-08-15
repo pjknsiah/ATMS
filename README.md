@@ -22,6 +22,7 @@ python -c "from ultralytics import YOLO; YOLO('yolo11n.pt')"
 
 # 6. Run
 python main.py 
+
 ```
 
 ## Run tests

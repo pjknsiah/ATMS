@@ -159,8 +159,10 @@ class PipelineManager:
             lane_id of the lane granted the green signal.
         """
         received: dict[int, int] = {}
-        # Allow up to 2× the window for slow lanes before falling back to 0.
-        deadline = time.monotonic() + self._config.window_seconds * 2
+        # Allow (lane_count + 1)× the window before falling back to 0.
+        # The extra factor accounts for N parallel CPU-bound inference processes
+        # competing for cores — the effective wall time scales with lane_count.
+        deadline = time.monotonic() + self._config.window_seconds * (len(self._lanes) + 1)
 
         while len(received) < len(self._lanes) and time.monotonic() < deadline:
             try:

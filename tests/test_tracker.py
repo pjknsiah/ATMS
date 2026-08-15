@@ -3,11 +3,15 @@ Tests for detection/tracker.py.
 
 BYTETracker is mocked — no GPU or real video required.
 
+Ultralytics 8.4+ BYTETracker.update() returns a numpy array of shape (M, 8):
+    [x1, y1, x2, y2, track_id, score, cls, idx]
+where idx is the index into the original detection list passed this frame.
+
 Run with: pytest tests/test_tracker.py -v
 """
 
 from __future__ import annotations
-from types import SimpleNamespace
+
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -21,12 +25,19 @@ def _det(bbox: tuple[int, int, int, int], conf: float = 0.9) -> Detection:
     return Detection(class_name="car", confidence=conf, bbox=bbox)
 
 
-def _fake_track(bbox: tuple[int, int, int, int], track_id: int) -> MagicMock:
-    """Build a mock STrack object as returned by BYTETracker.update()."""
-    t = MagicMock()
-    t.tlbr = list(bbox)
-    t.track_id = track_id
-    return t
+def _track_row(
+    bbox: tuple[int, int, int, int],
+    track_id: int,
+    det_idx: int = 0,
+    score: float = 0.9,
+) -> np.ndarray:
+    """
+    Build one row of the numpy array returned by BYTETracker.update().
+
+    Columns: [x1, y1, x2, y2, track_id, score, cls, idx]
+    """
+    x1, y1, x2, y2 = bbox
+    return np.array([x1, y1, x2, y2, track_id, score, 0.0, det_idx], dtype=np.float32)
 
 
 @pytest.fixture
@@ -35,6 +46,8 @@ def tracker(mocker) -> VehicleTracker:
     mocker.patch("src.detection.tracker.BYTETracker")
     return VehicleTracker(frame_rate=30)
 
+
+# ── IoU helper ────────────────────────────────────────────────────────────────
 
 class TestIoU:
     def test_identical_boxes(self) -> None:
@@ -49,27 +62,34 @@ class TestIoU:
         assert 0.0 < score < 1.0
 
 
+# ── VehicleTracker ────────────────────────────────────────────────────────────
+
 class TestVehicleTracker:
     def test_empty_detections_returns_empty_list(self, tracker: VehicleTracker) -> None:
         result = tracker.update([], np.zeros((480, 640, 3), dtype=np.uint8))
         assert result == []
 
-    def test_track_ids_assigned_by_iou(self, tracker: VehicleTracker) -> None:
-        """Detection overlapping a returned track must get its track_id."""
+    def test_track_ids_assigned_via_idx(self, tracker: VehicleTracker) -> None:
+        """
+        ByteTrack returns a row whose idx column (7) points back to the
+        original detection; that detection must get the matching track_id.
+        """
         bbox = (10, 10, 100, 100)
         det = _det(bbox)
-        track = _fake_track(bbox, track_id=7)
-        tracker._tracker.update.return_value = [track]
+        # Return one track row: track_id=7, det_idx=0 → detections[0]
+        tracker._tracker.update.return_value = np.array([_track_row(bbox, track_id=7, det_idx=0)])
 
         result = tracker.update([det], np.zeros((480, 640, 3), dtype=np.uint8))
 
         assert result[0].track_id == 7
 
-    def test_non_overlapping_track_gets_no_id(self, tracker: VehicleTracker) -> None:
-        """Detection far from all tracks keeps track_id=None."""
+    def test_no_tracks_returned_means_no_id(self, tracker: VehicleTracker) -> None:
+        """
+        If ByteTrack returns an empty array (no confirmed tracks),
+        the detection keeps track_id=None.
+        """
         det = _det((0, 0, 10, 10))
-        track = _fake_track((200, 200, 300, 300), track_id=1)
-        tracker._tracker.update.return_value = [track]
+        tracker._tracker.update.return_value = np.zeros((0, 8), dtype=np.float32)
 
         result = tracker.update([det], np.zeros((480, 640, 3), dtype=np.uint8))
 
@@ -77,8 +97,8 @@ class TestVehicleTracker:
 
     def test_unique_count_increments_per_new_id(self, tracker: VehicleTracker) -> None:
         bbox = (10, 10, 100, 100)
-        tracker._tracker.update.return_value = [_fake_track(bbox, track_id=1)]
         frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        tracker._tracker.update.return_value = np.array([_track_row(bbox, track_id=1, det_idx=0)])
 
         tracker.update([_det(bbox)], frame)
         assert tracker.unique_count() == 1
@@ -91,22 +111,35 @@ class TestVehicleTracker:
         frame = np.zeros((480, 640, 3), dtype=np.uint8)
         bbox = (10, 10, 100, 100)
 
-        tracker._tracker.update.return_value = [_fake_track(bbox, track_id=1)]
+        tracker._tracker.update.return_value = np.array([_track_row(bbox, track_id=1, det_idx=0)])
         tracker.update([_det(bbox)], frame)
 
-        tracker._tracker.update.return_value = [_fake_track(bbox, track_id=2)]
+        tracker._tracker.update.return_value = np.array([_track_row(bbox, track_id=2, det_idx=0)])
         tracker.update([_det(bbox)], frame)
 
         assert tracker.unique_count() == 2
 
     def test_reset_window_clears_seen_ids(self, tracker: VehicleTracker) -> None:
         bbox = (10, 10, 100, 100)
-        tracker._tracker.update.return_value = [_fake_track(bbox, track_id=5)]
+        tracker._tracker.update.return_value = np.array([_track_row(bbox, track_id=5, det_idx=0)])
         tracker.update([_det(bbox)], np.zeros((480, 640, 3), dtype=np.uint8))
         assert tracker.unique_count() == 1
 
         tracker.reset_window()
         assert tracker.unique_count() == 0
+
+    def test_out_of_range_idx_does_not_crash(self, tracker: VehicleTracker) -> None:
+        """Track row with out-of-range idx is counted but does not set any detection."""
+        det = _det((10, 10, 50, 50))
+        # idx=99 is way out of bounds — should be silently ignored
+        tracker._tracker.update.return_value = np.array(
+            [_track_row((10, 10, 50, 50), track_id=3, det_idx=99)]
+        )
+
+        result = tracker.update([det], np.zeros((480, 640, 3), dtype=np.uint8))
+
+        assert tracker.unique_count() == 1   # track_id was recorded
+        assert result[0].track_id is None    # but the detection didn't get updated
 
     def test_tracker_exception_returns_detections_unchanged(
         self, tracker: VehicleTracker
