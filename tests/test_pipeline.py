@@ -38,6 +38,8 @@ def _make_config(**overrides) -> Config:
         video_dir="data/samples",
         log_level="INFO",
         vehicle_classes=("car", "motorcycle", "bus", "truck"),
+        every_n_frames=5,
+        collect_timeout=5.0,  # short default in tests; override per test if needed
     )
     defaults.update(overrides)
     return Config(**defaults)
@@ -207,10 +209,10 @@ class TestPipelineManager:
 
     def test_missing_lane_report_treated_as_zero(self) -> None:
         """If a lane doesn't report, its cumulative count should increase by 0."""
-        config = _make_config(lane_count=2, window_seconds=1)
+        # collect_timeout=0 makes the deadline expire immediately so lane 1
+        # (which never posts) is treated as 0 without waiting.
+        config = _make_config(lane_count=2, collect_timeout=0.001)
         mgr = self._manager_with_queue(config, [(0, 5)])   # lane 1 never reports
-        # Use a tiny timeout so the test doesn't hang.
-        mgr._config = _make_config(lane_count=2, window_seconds=0)
 
         mgr._collect_and_decide()
 

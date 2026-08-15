@@ -37,6 +37,8 @@ class LanePipeline:
         detector: Initialised VehicleDetector.
         tracker: Initialised VehicleTracker.
         window_seconds: Duration of each processing window in seconds.
+        every_n_frames: Sample 1 in every N frames to control inference load.
+                        Higher values are faster but less precise. Default=5.
     """
 
     def __init__(
@@ -46,12 +48,14 @@ class LanePipeline:
         detector: VehicleDetector,
         tracker: VehicleTracker,
         window_seconds: int,
+        every_n_frames: int = 5,
     ) -> None:
         self.lane_id = lane_id
         self.video_path = Path(video_path)
         self.detector = detector
         self.tracker = tracker
         self.window_seconds = window_seconds
+        self.every_n_frames = every_n_frames
 
     def process_window(self, start_sec: float) -> int:
         """
@@ -71,7 +75,9 @@ class LanePipeline:
         actual_end = min(actual_start + self.window_seconds, duration)
 
         try:
-            for frame in iter_subclip_frames(self.video_path, actual_start, actual_end):
+            for frame in iter_subclip_frames(
+                self.video_path, actual_start, actual_end, self.every_n_frames
+            ):
                 detections: list[Detection] = self.detector.detect(frame)
                 self.tracker.update(detections, frame)
         except Exception:

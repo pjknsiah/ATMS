@@ -38,6 +38,7 @@ def _run_lane(
     confidence: float,
     vehicle_classes: set[str],
     window_seconds: int,
+    every_n_frames: int,
     result_queue: multiprocessing.Queue,
     stop_event: multiprocessing.Event,
 ) -> None:
@@ -54,13 +55,27 @@ def _run_lane(
         confidence: Minimum detection confidence threshold.
         vehicle_classes: Set of class names to count.
         window_seconds: Window duration in seconds.
+        every_n_frames: Sample 1 in every N video frames per window.
         result_queue: Shared queue for posting (lane_id, count) results.
         stop_event: Set by the manager to request shutdown.
     """
     try:
+        # Limit intra-op parallelism so N lane processes don't collectively
+        # oversubscribe the available CPU cores (each would otherwise spawn
+        # as many threads as there are cores, totalling N × cores threads).
+        import os
+        import torch
+
+        n_cores = os.cpu_count() or 4
+        threads_per_lane = max(1, n_cores // 4)  # always leave headroom for 4 lanes
+        torch.set_num_threads(threads_per_lane)
+        torch.set_num_interop_threads(1)
+
         detector = VehicleDetector(weights_path, confidence, vehicle_classes)
         tracker = VehicleTracker()
-        pipeline = LanePipeline(lane_id, video_path, detector, tracker, window_seconds)
+        pipeline = LanePipeline(
+            lane_id, video_path, detector, tracker, window_seconds, every_n_frames
+        )
         pipeline.run(result_queue, stop_event)
     except Exception:
         log.exception("lane_process_error", lane_id=lane_id)
@@ -105,6 +120,7 @@ class PipelineManager:
                     self._config.confidence_threshold,
                     vehicle_classes,
                     self._config.window_seconds,
+                    self._config.every_n_frames,
                     self._queue,
                     self._stop_event,
                 ),
@@ -141,11 +157,6 @@ class PipelineManager:
         """
         while not self._stop_event.is_set():
             winner = self._collect_and_decide()
-            log.info(
-                "signal_granted",
-                winner=winner,
-                counts={l.lane_id: l.cumulative_count for l in self._lanes},
-            )
 
     def _collect_and_decide(self) -> int:
         """
@@ -159,10 +170,12 @@ class PipelineManager:
             lane_id of the lane granted the green signal.
         """
         received: dict[int, int] = {}
-        # Allow (lane_count + 1)× the window before falling back to 0.
-        # The extra factor accounts for N parallel CPU-bound inference processes
-        # competing for cores — the effective wall time scales with lane_count.
-        deadline = time.monotonic() + self._config.window_seconds * (len(self._lanes) + 1)
+        # collect_timeout gives all lanes a chance to post their window result
+        # before we fall back to 0 for missing lanes.  On CPU-only machines N
+        # parallel YOLO processes compete for cores, so the effective wall time
+        # can exceed window_seconds × lane_count; set COLLECT_TIMEOUT in .env
+        # to tune (default 60 s).
+        deadline = time.monotonic() + self._config.collect_timeout
 
         while len(received) < len(self._lanes) and time.monotonic() < deadline:
             try:
@@ -175,4 +188,15 @@ class PipelineManager:
         for lane in self._lanes:
             lane.cumulative_count += received.get(lane.lane_id, 0)
 
-        return self._controller.decide(self._lanes)
+        # Snapshot cumulative counts NOW — before decide() resets the winner.
+        pre_decision = {l.lane_id: l.cumulative_count for l in self._lanes}
+        winner_id = self._controller.decide(self._lanes)
+
+        log.info(
+            "signal_granted",
+            winner=winner_id,
+            cumulative_counts=pre_decision,
+            window_received=received,
+            signals={l.lane_id: l.current_signal for l in self._lanes},
+        )
+        return winner_id
