@@ -8,7 +8,7 @@ no lane is starved indefinitely.
 > **Status:** Phases 1–5 complete · 63 tests passing · verified on real video
 
 ---
-
+ 
 ## How it works
 
 Every `WINDOW_SECONDS` (default 5 s), each lane's camera feed is sampled:
