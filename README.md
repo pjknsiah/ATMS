@@ -22,7 +22,7 @@ Every `WINDOW_SECONDS` (default 5 s), each lane's camera feed is sampled:
 The signal controller picks the lane with the highest cumulative count, grants it
 green, resets its count to zero, then moves to the next collection window.
 
-### Deadlock prevention
+### Deadlock prevention 
 
 If a single lane wins `DEADLOCK_THRESHOLD` consecutive rounds (default 2), the
 `DeadlockGuard` forces a round-robin override: the controller picks the next lane
