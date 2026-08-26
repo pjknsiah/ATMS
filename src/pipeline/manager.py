@@ -18,9 +18,14 @@ from __future__ import annotations
 
 import multiprocessing
 import queue
+import threading
 import time
 from pathlib import Path
 
+import uvicorn
+
+from src.dashboard.broadcaster import broadcaster
+from src.dashboard.server import app as dashboard_app
 from src.detection.detector import VehicleDetector
 from src.detection.tracker import VehicleTracker
 from src.pipeline.lane import LanePipeline
@@ -105,8 +110,21 @@ class PipelineManager:
         """
         Spawn one subprocess per lane and begin the signal controller loop.
 
+        Also starts the FastAPI dashboard server on port 8000 in a daemon
+        thread so the web UI is available throughout the pipeline run.
+
         Blocks until stop() is called or a KeyboardInterrupt is received.
         """
+        # Start the dashboard HTTP / WebSocket server in a background daemon
+        # thread so it doesn't block the pipeline loop.
+        threading.Thread(
+            target=uvicorn.run,
+            args=(dashboard_app,),
+            kwargs={"host": "0.0.0.0", "port": 8000, "log_level": "warning"},
+            daemon=True,
+        ).start()
+        log.info("dashboard_server_launching", url="http://localhost:8000")
+
         vehicle_classes = set(self._config.vehicle_classes)
 
         for lane in self._lanes:
@@ -199,4 +217,23 @@ class PipelineManager:
             window_received=received,
             signals={l.lane_id: l.current_signal for l in self._lanes},
         )
+
+        # Broadcast the post-decision state to all connected dashboard clients.
+        payload: dict = {
+            "event": "signal_granted",
+            "timestamp": time.time(),
+            "winner": winner_id,
+            "lanes": [
+                {
+                    "lane_id": l.lane_id,
+                    "signal": l.current_signal,
+                    "cumulative_count": l.cumulative_count,
+                    "consecutive_greens": l.consecutive_greens,
+                }
+                for l in self._lanes
+            ],
+        }
+        broadcaster.update_state(payload)
+        broadcaster.broadcast_sync(payload)
+
         return winner_id

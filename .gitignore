@@ -8,4 +8,7 @@ __pycache__/
 .idea/
 *.log
 data/
+node_modules/
+dashboard-ui/node_modules/
+
 
