@@ -71,7 +71,7 @@ export default function CountChart({ lanes, winner }) {
           tickLine={false}
         />
         <Tooltip content={<CustomTooltip />} cursor={{ fill: '#ffffff08' }} />
-        <Bar dataKey="count" radius={[3, 3, 0, 0]}>
+        <Bar dataKey="count" radius={[3, 3, 0, 0]} minPointSize={4}>
           {data.map((entry, index) => (
             <Cell
               key={`cell-${index}`}
