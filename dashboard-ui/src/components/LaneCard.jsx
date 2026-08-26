@@ -82,12 +82,10 @@ export default function LaneCard({ lane_id, signal, cumulative_count, consecutiv
         <div style={countStyle}>{cumulative_count}</div>
         <div style={countLabelStyle}>vehicles</div>
       </div>
-      {consecutive_greens > 0 && (
-        <div style={badgeStyle}>
-          <span>🟢</span>
-          <span>×{consecutive_greens}</span>
-        </div>
-      )}
+      <div style={badgeStyle}>
+        <span>🟢</span>
+        <span>×{consecutive_greens}</span>
+      </div>
     </div>
   );
 }
