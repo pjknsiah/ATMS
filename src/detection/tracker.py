@@ -29,9 +29,9 @@ log = get_logger(__name__)
 
 # ByteTrack hyperparameters — match ultralytics bytetrack.yaml defaults.
 _BYTETRACK_ARGS = SimpleNamespace(
-    track_high_thresh=0.5,
+    track_high_thresh=0.25,
     track_low_thresh=0.1,
-    new_track_thresh=0.6,
+    new_track_thresh=0.25,
     track_buffer=30,
     match_thresh=0.8,
     fuse_score=True,

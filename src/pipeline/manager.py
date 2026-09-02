@@ -218,7 +218,10 @@ class PipelineManager:
             signals={l.lane_id: l.current_signal for l in self._lanes},
         )
 
-        # Broadcast the post-decision state to all connected dashboard clients.
+        # Broadcast the decision, but report each lane's PRE-decision count —
+        # decide() already reset the winner's cumulative_count to 0 above, so
+        # reading l.cumulative_count here would always show 0 for whichever
+        # lane just won (the exact count that made it win).
         payload: dict = {
             "event": "signal_granted",
             "timestamp": time.time(),
@@ -227,7 +230,7 @@ class PipelineManager:
                 {
                     "lane_id": l.lane_id,
                     "signal": l.current_signal,
-                    "cumulative_count": l.cumulative_count,
+                    "cumulative_count": pre_decision[l.lane_id],
                     "consecutive_greens": l.consecutive_greens,
                 }
                 for l in self._lanes
