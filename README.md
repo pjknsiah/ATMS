@@ -341,4 +341,4 @@ The following are **not implemented** in the current build:
 
 ---
 
-*Computer Engineering capstone project · Python 3.11 · YOLO11 · ByteTrack · FastAPI · React*
+*Computer Science capstone project · Python 3.11 · YOLO11 · ByteTrack · FastAPI · React*
